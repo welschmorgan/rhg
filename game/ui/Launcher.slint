@@ -1,0 +1,40 @@
+import { VerticalBox, Button } from "std-widgets.slint";
+
+export struct LauncherModel {
+    engine-version: string
+}
+
+export component LauncherWindow inherits Window {
+    preferred-height: 150px;
+    preferred-width: 350px;
+    title: "Random Horror Game";
+    icon: @image-url("resources/logo.png");
+
+    in-out property <LauncherModel> model;
+    callback launchGame();
+    
+    VerticalBox {
+        alignment: start;
+        Text {
+            text: "Play";
+            font-size: 24px;
+            horizontal-alignment: center;
+        }
+
+        Text {
+            text: "Engine v\{model.engine-version}";
+            font-size: 12px;
+            horizontal-alignment: right;
+        }
+
+        HorizontalLayout {
+            alignment: center;
+            Button {
+                text: "OK!";
+                clicked => {
+                    launchGame()
+                }
+            }
+        }
+    }
+}
