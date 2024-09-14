@@ -46,63 +46,70 @@ impl App {
 fn setup_rendering(inner: Rc<RefCell<AppInner>>) {
   let inner2 = inner.clone();
   let inner3 = inner.clone();
-  inner
-    .borrow()
-    .game_window
-    .window()
-    .set_rendering_notifier(move |state, gfx_api| match state {
-      slint::RenderingState::RenderingSetup => {
-        let context = match gfx_api {
-          #[cfg(not(target_arch = "wasm32"))]
-          slint::GraphicsAPI::NativeOpenGL { get_proc_address } => unsafe {
-            glow::Context::from_loader_function_cstr(|s| get_proc_address(s))
-          },
-          #[cfg(target_arch = "wasm32")]
-          slint::GraphicsAPI::WebGL {
-            canvas_element_id,
-            context_type,
-          } => {
-            use wasm_bindgen::JsCast;
+  if let Err(e) =
+    inner
+      .borrow()
+      .game_window
+      .window()
+      .set_rendering_notifier(move |state, gfx_api| match state {
+        slint::RenderingState::RenderingSetup => {
+          let context = match gfx_api {
+            #[cfg(not(target_arch = "wasm32"))]
+            slint::GraphicsAPI::NativeOpenGL { get_proc_address } => unsafe {
+              glow::Context::from_loader_function_cstr(|s| get_proc_address(s))
+            },
+            #[cfg(target_arch = "wasm32")]
+            slint::GraphicsAPI::WebGL {
+              canvas_element_id,
+              context_type,
+            } => {
+              use wasm_bindgen::JsCast;
 
-            let canvas = web_sys::window()
-              .unwrap()
-              .document()
-              .unwrap()
-              .get_element_by_id(canvas_element_id)
-              .unwrap()
-              .dyn_into::<web_sys::HtmlCanvasElement>()
-              .unwrap();
+              let canvas = web_sys::window()
+                .unwrap()
+                .document()
+                .unwrap()
+                .get_element_by_id(canvas_element_id)
+                .unwrap()
+                .dyn_into::<web_sys::HtmlCanvasElement>()
+                .unwrap();
 
-            let webgl1_context = canvas
-              .get_context(context_type)
-              .unwrap()
-              .unwrap()
-              .dyn_into::<web_sys::WebGlRenderingContext>()
-              .unwrap();
+              let webgl1_context = canvas
+                .get_context(context_type)
+                .unwrap()
+                .unwrap()
+                .dyn_into::<web_sys::WebGlRenderingContext>()
+                .unwrap();
 
-            glow::Context::from_webgl1_context(webgl1_context)
-          }
-          _ => return,
-        };
-        println!("Renderer initialized: {:?}!", context.version());
-        let renderer = Some(GLRenderer::new(context));
-        inner3.borrow_mut().renderer = renderer;
-      }
-      slint::RenderingState::BeforeRendering => {
-        inner2
-          .borrow_mut()
-          .renderer
-          .as_mut()
-          .unwrap()
-          .render()
-          .unwrap();
-        inner2.borrow().game_window.window().request_redraw();
-      }
-      slint::RenderingState::AfterRendering => {}
-      slint::RenderingState::RenderingTeardown => {}
-      _ => {}
-    })
-    .unwrap()
+              glow::Context::from_webgl1_context(webgl1_context)
+            }
+            _ => return,
+          };
+          println!("Renderer initialized: {:?}!", context.version());
+          let renderer = Some(GLRenderer::new(context));
+          inner3.borrow_mut().renderer = renderer;
+        }
+        slint::RenderingState::BeforeRendering => {
+          inner2
+            .borrow_mut()
+            .renderer
+            .as_mut()
+            .unwrap()
+            .render()
+            .unwrap();
+          inner2.borrow().game_window.window().request_redraw();
+        }
+        slint::RenderingState::AfterRendering => {}
+        slint::RenderingState::RenderingTeardown => drop(inner3.borrow_mut().renderer.take()),
+        _ => {}
+      })
+  {
+    match e {
+        slint::SetRenderingNotifierError::Unsupported => eprintln!("This example requires the use of the GL backend. Please run with the environment variable SLINT_BACKEND=GL set."),
+        _ => unreachable!()
+    }
+    std::process::exit(1);
+  }
 }
 
 struct GLRenderer {
@@ -110,6 +117,9 @@ struct GLRenderer {
   last_fps_sample: Instant,
   fps_accu: usize,
   fps: usize,
+
+  vbo: usize,
+  vao: usize,
 }
 
 impl GLRenderer {
@@ -119,6 +129,8 @@ impl GLRenderer {
       last_fps_sample: Instant::now(),
       fps_accu: 0,
       fps: 0,
+      vao: 0,
+      vbo: 0,
     }
   }
 
@@ -132,10 +144,21 @@ impl GLRenderer {
     } else {
       self.fps_accu += 1;
     }
+
+    unsafe {
+      self.context.clear_color(0.2f32, 0.2f32, 0.2f32, 1.0f32);
+      self
+        .context
+        .clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
+    }
+
     Ok(())
   }
 }
 
+impl Drop for GLRenderer {
+  fn drop(&mut self) {}
+}
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 pub fn main() {
   // This provides better error messages in debug mode.
@@ -144,62 +167,6 @@ pub fn main() {
   console_error_panic_hook::set_once();
 
   App::new().run()
-}
-
-fn notify_rendering(
-  renderer: &mut Option<GLRenderer>,
-  state: RenderingState,
-  graphics_api: &GraphicsAPI<'_>,
-) {
-  eprintln!("rendering state {:#?}", state);
-  match state {
-    slint::RenderingState::RenderingSetup => {
-      let context = match graphics_api {
-        #[cfg(not(target_arch = "wasm32"))]
-        slint::GraphicsAPI::NativeOpenGL { get_proc_address } => unsafe {
-          glow::Context::from_loader_function_cstr(|s| get_proc_address(s))
-        },
-        #[cfg(target_arch = "wasm32")]
-        slint::GraphicsAPI::WebGL {
-          canvas_element_id,
-          context_type,
-        } => {
-          use wasm_bindgen::JsCast;
-
-          let canvas = web_sys::window()
-            .unwrap()
-            .document()
-            .unwrap()
-            .get_element_by_id(canvas_element_id)
-            .unwrap()
-            .dyn_into::<web_sys::HtmlCanvasElement>()
-            .unwrap();
-
-          let webgl1_context = canvas
-            .get_context(context_type)
-            .unwrap()
-            .unwrap()
-            .dyn_into::<web_sys::WebGlRenderingContext>()
-            .unwrap();
-
-          glow::Context::from_webgl1_context(webgl1_context)
-        }
-        _ => return,
-      };
-      *renderer = Some(GLRenderer::new(context))
-    }
-    slint::RenderingState::BeforeRendering => {
-      // if let (Some(renderer), Some(editor)) = (renderer.as_mut(), window_weak.upgrade()) {
-      //     renderer.render();
-      //     // game_window.window().request_redraw();
-      // }
-    }
-    slint::RenderingState::AfterRendering => {}
-    slint::RenderingState::RenderingTeardown => {
-      drop(renderer.take());
-    }
-    _ => {}
-  }
 }
 
 /*
