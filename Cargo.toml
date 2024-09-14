@@ -1,6 +1,8 @@
-[package]
-name = "random-horror-game"
+[workspace]
+members = ["engine"]
+resolver = "2"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
-
-[dependencies]
+authors = ["Morgan Welsch <welschmorgan@gmail.com>"]

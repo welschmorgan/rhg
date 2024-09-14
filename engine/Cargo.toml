@@ -1,0 +1,18 @@
+[package]
+name = "rhg-engine"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+[lib]
+name = "rhg_engine"
+path = "src/lib/mod.rs"
+
+[[bin]]
+name = "rhg_pack"
+path = "src/bin/pack/main.rs"
+
+[dependencies]
+chrono = "0.4.38"
+clap = { version = "4.5.17", features = ["derive"] }
+slint = "1.7.2"
