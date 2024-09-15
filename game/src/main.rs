@@ -2,18 +2,77 @@ extern crate rhg_engine;
 
 // use slint::SharedString;
 
-use std::{cell::RefCell, rc::Rc, time::Instant};
+use std::{
+  any::Any,
+  cell::{Ref, RefCell},
+  fmt::{Debug, Display},
+  ops::{Deref, DerefMut},
+  rc::Rc,
+  time::Instant,
+};
 
-use glow::HasContext as _;
+use glow::{Buffer, HasContext as _, VertexArray};
+use rhg_engine::{
+  err, here, Error, ErrorKind, GLRenderer, Renderable, Vec3f32, Vec4f32, Vertex, VertexBuffer,
+};
 use slint::{ComponentHandle, GraphicsAPI, RenderingState, SharedString, Weak};
 
 slint::include_modules!();
 
-struct App(Rc<RefCell<AppInner>>);
-struct AppInner {
+pub type ProgramPtr = Rc<RefCell<glow::Program>>;
+
+pub struct Ptr<T: ?Sized>(Rc<RefCell<T>>);
+
+impl<T> Ptr<T> {
+  pub fn new(val: T) -> Self {
+    Self(Rc::new(RefCell::new(val)))
+  }
+}
+
+impl<T> Clone for Ptr<T> {
+  fn clone(&self) -> Self {
+    Self(self.0.clone())
+  }
+}
+
+impl<T: Default> Default for Ptr<T> {
+  fn default() -> Self {
+    Self::new(T::default())
+  }
+}
+
+impl<T: Debug> Debug for Ptr<T> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_tuple("Ptr").field(&self.0).finish()
+  }
+}
+
+impl<T: Display> Display for Ptr<T> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    self.0.borrow().fmt(f)
+  }
+}
+
+impl<T> Deref for Ptr<T> {
+  type Target = Rc<RefCell<T>>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl<T> DerefMut for Ptr<T> {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.0
+  }
+}
+
+pub struct App(Rc<RefCell<AppInner>>);
+
+pub struct AppInner {
   launcher_window: LauncherWindow,
   game_window: GameWindow,
-  renderer: Option<GLRenderer>,
+  renderer: Option<Ptr<GLRenderer>>,
 }
 
 impl App {
@@ -37,10 +96,32 @@ impl App {
     ret
   }
 
+  pub fn renderer(&self) -> Ptr<GLRenderer> {
+    self.0.borrow().renderer.as_ref().unwrap().clone()
+  }
+
   fn run(self) {
     self.0.borrow().launcher_window.show().unwrap();
     slint::run_event_loop().unwrap();
   }
+}
+
+fn setup_scene(inner: Rc<RefCell<AppInner>>) {
+  let buf = inner
+    .borrow()
+    .renderer
+    .as_ref()
+    .unwrap()
+    .clone()
+    .borrow_mut()
+    .add_renderable(
+      VertexBuffer::<f32>::named("cube_001").with_vertices([Vertex::new(
+        Vec3f32::new(0f32, 0f32, 0f32),
+        Vec4f32::new(255f32, 0f32, 0f32, 255f32),
+        Vec3f32::new(0f32, 0f32, 0f32),
+      )]),
+    )
+    .unwrap();
 }
 
 fn setup_rendering(inner: Rc<RefCell<AppInner>>) {
@@ -86,7 +167,7 @@ fn setup_rendering(inner: Rc<RefCell<AppInner>>) {
             _ => return,
           };
           println!("Renderer initialized: {:?}!", context.version());
-          let renderer = Some(GLRenderer::new(context));
+          let renderer = Some(Ptr::new(GLRenderer::new(Rc::new(RefCell::new(context)))));
           inner3.borrow_mut().renderer = renderer;
         }
         slint::RenderingState::BeforeRendering => {
@@ -95,11 +176,21 @@ fn setup_rendering(inner: Rc<RefCell<AppInner>>) {
             .renderer
             .as_mut()
             .unwrap()
-            .render()
+            .borrow_mut()
+            .render_before()
             .unwrap();
           inner2.borrow().game_window.window().request_redraw();
         }
-        slint::RenderingState::AfterRendering => {}
+        slint::RenderingState::AfterRendering => {
+          inner2
+            .borrow_mut()
+            .renderer
+            .as_mut()
+            .unwrap()
+            .borrow_mut()
+            .render_after()
+            .unwrap();
+        }
         slint::RenderingState::RenderingTeardown => drop(inner3.borrow_mut().renderer.take()),
         _ => {}
       })
@@ -112,53 +203,6 @@ fn setup_rendering(inner: Rc<RefCell<AppInner>>) {
   }
 }
 
-struct GLRenderer {
-  context: glow::Context,
-  last_fps_sample: Instant,
-  fps_accu: usize,
-  fps: usize,
-
-  vbo: usize,
-  vao: usize,
-}
-
-impl GLRenderer {
-  pub fn new(context: glow::Context) -> Self {
-    Self {
-      context,
-      last_fps_sample: Instant::now(),
-      fps_accu: 0,
-      fps: 0,
-      vao: 0,
-      vbo: 0,
-    }
-  }
-
-  pub fn render(&mut self) -> rhg_engine::Result<()> {
-    let elapsed_fps_sample = Instant::now() - self.last_fps_sample;
-    if elapsed_fps_sample.as_secs_f32() > 1.0 {
-      self.fps = self.fps_accu;
-      self.fps_accu = 0;
-      println!("FPS: {:4.2}", self.fps);
-      self.last_fps_sample = Instant::now()
-    } else {
-      self.fps_accu += 1;
-    }
-
-    unsafe {
-      self.context.clear_color(0.2f32, 0.2f32, 0.2f32, 1.0f32);
-      self
-        .context
-        .clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
-    }
-
-    Ok(())
-  }
-}
-
-impl Drop for GLRenderer {
-  fn drop(&mut self) {}
-}
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 pub fn main() {
   // This provides better error messages in debug mode.

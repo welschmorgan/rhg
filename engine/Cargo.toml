@@ -15,4 +15,5 @@ path = "src/bin/pack/main.rs"
 [dependencies]
 chrono = "0.4.38"
 clap = { version = "4.5.17", features = ["derive"] }
-slint = "1.7.2"
+glow = "0.14"
+# serde = { version = "1.0.210", features = ["derive"] }

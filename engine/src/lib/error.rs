@@ -7,8 +7,9 @@ use crate::{here, Location};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ErrorKind {
-    IO,
-    Unknown
+  IO,
+  Rendering,
+  Unknown,
 }
 
 #[derive(Debug, Clone)]
@@ -31,13 +32,13 @@ impl Error {
 }
 
 impl Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{:?}] {} at {}", self.kind, self.message, self.location)?;
-        if let Some(c) = &self.cause {
-            write!(f, "\nCaused by: {}", c)?;
-        }
-        Ok(())
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "[{:?}] {} at {}", self.kind, self.message, self.location)?;
+    if let Some(c) = &self.cause {
+      write!(f, "\nCaused by: {}", c)?;
     }
+    Ok(())
+  }
 }
 impl std::error::Error for Error {}
 
@@ -54,9 +55,9 @@ macro_rules! err  {
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl From<std::io::Error> for Error {
-    fn from(value: std::io::Error) -> Self {
-        Self::new(ErrorKind::IO, value.to_string(), None, here!())
-    }
+  fn from(value: std::io::Error) -> Self {
+    Self::new(ErrorKind::IO, value.to_string(), None, here!())
+  }
 }
 
 pub fn create_window() {
