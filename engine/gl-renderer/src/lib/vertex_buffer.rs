@@ -1,15 +1,23 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::{Ref, RefCell, RefMut}, rc::Rc};
 
 use as_any::Downcast;
 use glow::{Buffer, HasContext as _, VertexArray};
 
-use rhg_core::{err, here, ContextPtr, Error, ErrorKind, Renderable, Vertex};
+use rhg_core::{err, here, ContextRef, Error, ErrorKind, Renderable, Vertex, VertexBuffer};
 
 use crate::GLContext;
 
+pub struct GLVertexBuffer(RefCell<GLVertexBufferInner>);
+
+impl Default for GLVertexBuffer {
+  fn default() -> Self {
+    Self(RefCell::new(Default::default()))
+  }
+}
+
 #[derive(Default)]
-pub struct GLVertexBuffer {
-  ctx: Option<ContextPtr>,
+pub struct GLVertexBufferInner {
+  ctx: Option<ContextRef>,
   name: Option<String>,
   vbo: Option<Buffer>,
   vao: Option<VertexArray>,
@@ -18,65 +26,77 @@ pub struct GLVertexBuffer {
 
 impl GLVertexBuffer {
   pub fn new() -> Self {
-    Self {
+    Self(RefCell::new(GLVertexBufferInner {
       ctx: None,
       name: None,
       vao: None,
       vbo: None,
       vertices: Vec::new(),
-    }
+    }))
   }
 
   pub fn named<N: AsRef<str>>(name: N) -> Self {
     Self::new().with_name(name)
   }
 
-  pub fn with_name<N: AsRef<str>>(mut self, name: N) -> Self {
-    self.name = Some(name.as_ref().to_string());
+  pub fn with_name<N: AsRef<str>>(self, name: N) -> Self {
+    self.0.borrow_mut().name = Some(name.as_ref().to_string());
     self
   }
 
-  pub fn with_vertex(mut self, v: Vertex) -> Self {
-    self.vertices.push(v);
+  pub fn with_vertex(self, v: Vertex) -> Self {
+    self.0.borrow_mut().vertices.push(v);
     self
   }
 
-  pub fn with_vertices<const N: usize>(mut self, v: [Vertex; N]) -> Self {
-    self.vertices.extend(v);
+  pub fn with_vertices<const N: usize>(self, v: [Vertex; N]) -> Self {
+    self.0.borrow_mut().vertices.extend(v);
     self
   }
 
-  pub fn context(&self) -> Option<&ContextPtr> {
-    self.ctx.as_ref()
+  pub fn inner(&self) -> Ref<'_, GLVertexBufferInner> {
+    self.0.borrow()
   }
 
-  pub fn name(&self) -> Option<&String> {
-    self.name.as_ref()
+  pub fn inner_mut(&self) -> RefMut<'_, GLVertexBufferInner> {
+    self.0.borrow_mut()
   }
 
-  pub fn vao(&self) -> Option<&VertexArray> {
-    self.vao.as_ref()
+  pub fn context(&self) -> Option<ContextRef> {
+    self.0.borrow().ctx.clone()
   }
 
-  pub fn vbo(&self) -> Option<&Buffer> {
-    self.vbo.as_ref()
-  }
-
-  pub fn gl_context(&self) -> Option<Rc<RefCell<GLContext>>> {
-    self.context().map(|ctx| {
-      ctx
-        .borrow()
-        .internal()
-        .downcast_ref::<Rc<RefCell<GLContext>>>()
-        .unwrap()
-        .clone()
+  pub fn gl_context(&self) -> rhg_core::Result<Rc<GLContext>> {
+    let ctx = self.0.borrow().ctx
+      .as_ref()
+      .and_then(|ctx| Rc::downcast::<GLContext>(ctx.clone()).ok());
+    ctx.ok_or_else(|| {
+      Error::new(
+        ErrorKind::Rendering,
+        format!("invalid GLContext"),
+        None,
+        here!(),
+      )
     })
   }
+
+  pub fn name(&self) -> Ref<'_, Option<String>> {
+    Ref::map(self.0.borrow(), |inner| &inner.name)
+  }
+
+  pub fn vao(&self) -> Ref<'_, Option<VertexArray>> {
+    Ref::map(self.0.borrow(), |inner| &inner.vao)
+  }
+
+  pub fn vbo(&self) -> Ref<'_, Option<Buffer>> {
+    Ref::map(self.0.borrow(), |inner| &inner.vbo)
+  }
+
 }
 
 impl Drop for GLVertexBuffer {
   fn drop(&mut self) {
-    if let Some(ctx) = self.ctx.as_ref() {
+    if let Some(ctx) = self.0.borrow().ctx.as_ref() {
       self
         .destroy(&ctx.clone())
         .map_err(|e| format!("failed to destroy {:?}, {}", self.name(), e))
@@ -85,21 +105,32 @@ impl Drop for GLVertexBuffer {
   }
 }
 
+impl VertexBuffer for GLVertexBuffer {
+  fn vertices(&self) -> Ref<'_, Vec<Vertex<f32>>> {
+    Ref::map(self.0.borrow(), |inner| &inner.vertices)
+  }
+
+  fn vertices_mut(&mut self) -> RefMut<'_, Vec<Vertex<f32>>> {
+    RefMut::map(self.0.borrow_mut(), |inner| &mut inner.vertices)
+  }
+}
+
 impl Renderable for GLVertexBuffer {
-  fn name(&self) -> Option<&String> {
-    self.name.as_ref()
+  fn name(&self) -> Ref<'_, Option<String>> {
+    Ref::map(self.0.borrow(), |inner| &inner.name)
   }
 
   fn was_created(&self) -> bool {
-    self.vbo.is_some() && self.vao.is_some()
+    let inner = self.0.borrow();
+    inner.vbo.is_some() && inner.vao.is_some()
   }
 
-  fn create(&mut self, ctx: &ContextPtr) -> rhg_core::Result<()> {
-    self.ctx = Some(ctx.clone());
+  fn create(&self, ctx: &ContextRef) -> rhg_core::Result<()> {
+    self.0.borrow_mut().ctx = Some(ctx.clone());
+    let gl_ctx = self.gl_context()?;
     unsafe {
       let gl = self.gl_context().as_ref().unwrap().clone();
-      let gl = gl.borrow();
-      self.vbo = Some(gl.create_buffer().map_err(|e| {
+      self.inner_mut().vbo = Some(gl.create_buffer().map_err(|e| {
         Error::new(
           ErrorKind::Rendering,
           format!("failed to create VBO, {}", e),
@@ -107,7 +138,7 @@ impl Renderable for GLVertexBuffer {
           here!(),
         )
       })?);
-      self.vao = Some(gl.create_vertex_array().map_err(|e| {
+      self.inner_mut().vao = Some(gl.create_vertex_array().map_err(|e| {
         Error::new(
           ErrorKind::Rendering,
           format!("failed to create VAO, {}", e),
@@ -116,15 +147,15 @@ impl Renderable for GLVertexBuffer {
         )
       })?);
 
-      gl.bind_buffer(glow::ARRAY_BUFFER, self.vbo);
+      gl.bind_buffer(glow::ARRAY_BUFFER, self.inner().vbo);
 
       gl.buffer_data_u8_slice(
         glow::ARRAY_BUFFER,
-        self.vertices.align_to().1,
+        self.inner().vertices.align_to().1,
         glow::STATIC_DRAW,
       );
 
-      gl.bind_vertex_array(self.vao);
+      gl.bind_vertex_array(self.inner().vao);
       gl.enable_vertex_attrib_array(0);
       gl.vertex_attrib_pointer_f32(0, 2, glow::FLOAT, false, 8, 0);
 
@@ -134,9 +165,8 @@ impl Renderable for GLVertexBuffer {
     Ok(())
   }
 
-  fn render_before(&mut self, ctx: &ContextPtr) -> rhg_core::Result<()> {
+  fn render_before(&self, ctx: &ContextRef) -> rhg_core::Result<()> {
     let gl = self.gl_context().as_ref().unwrap().clone();
-    let gl = gl.borrow();
     unsafe {
       // Retrieving the buffer with glow only works with native builds right now. For WASM this requires https://github.com/grovesNL/glow/pull/190
       // That means we can't properly restore the vao/vbo, but this is okay for now as this only works with femtovg, which doesn't rely on
@@ -148,7 +178,7 @@ impl Renderable for GLVertexBuffer {
       #[cfg(target_arch = "wasm32")]
       let old_buffer = None;
 
-      gl.bind_buffer(glow::ARRAY_BUFFER, self.vbo);
+      gl.bind_buffer(glow::ARRAY_BUFFER, self.inner().vbo);
 
       #[cfg(not(target_arch = "wasm32"))]
       let old_vao =
@@ -157,7 +187,7 @@ impl Renderable for GLVertexBuffer {
       #[cfg(target_arch = "wasm32")]
       let old_vao = None;
 
-      gl.bind_vertex_array(self.vao);
+      gl.bind_vertex_array(self.inner().vao);
 
       gl.draw_arrays(glow::TRIANGLE_STRIP, 0, 4);
 
@@ -168,30 +198,26 @@ impl Renderable for GLVertexBuffer {
     Ok(())
   }
 
-  fn render_after(&mut self, ctx: &ContextPtr) -> rhg_core::Result<()> {
+  fn render_after(&self, ctx: &ContextRef) -> rhg_core::Result<()> {
     Ok(())
   }
 
-  fn destroy(&mut self, ctx: &ContextPtr) -> rhg_core::Result<()> {
+  fn destroy(&self, ctx: &ContextRef) -> rhg_core::Result<()> {
     if !self.was_created() {
       return err!(
         ErrorKind::Rendering,
         format!(
           "cannot destroy buffer{}, was_created = false",
-          match self.name() {
-            Some(name) => format!("'{}'", name),
-            None => String::new(),
-          }
+          self.name().as_ref().map(|n| format!("'{}'", n)).unwrap_or_default()
         )
       );
     }
     unsafe {
       let gl = self.gl_context().as_ref().unwrap().clone();
-      let gl = gl.borrow();
-      if let Some(vbo) = self.vbo {
+      if let Some(vbo) = self.inner().vbo {
         gl.delete_buffer(vbo);
       }
-      if let Some(vao) = self.vao {
+      if let Some(vao) = self.inner().vao {
         gl.delete_vertex_array(vao);
       }
     }

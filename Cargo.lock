@@ -3351,6 +3351,7 @@ dependencies = [
  "chrono",
  "clap",
  "glow 0.14.0",
+ "i-slint-core",
  "raw-window-handle",
  "rhg-engine-core",
 ]

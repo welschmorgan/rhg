@@ -3,28 +3,19 @@ use std::{any::Any, cell::RefCell, rc::Rc};
 use crate::{err, here, Error, ErrorKind};
 use as_any::AsAny;
 
-use super::{ContextPtr, Renderable, ShaderPtr, VertexBuffer, VertexBufferPtr, Window, WindowPtr};
-
-pub type RenderablePtr = Rc<RefCell<dyn Renderable>>;
+use super::{ContextRef, Renderable, RenderableRef, ShaderPtr, VertexBuffer, VertexBufferRef, Window, WindowPtr};
 
 pub trait Renderer: AsAny {
-  fn create(&mut self, gfx_api: &GraphicsAPI<'_>, window: WindowPtr) -> crate::Result<()>;
-  fn destroy(&mut self) -> crate::Result<()>;
+  fn create(&self, gfx_api: &GraphicsAPI<'_>, window: WindowPtr) -> crate::Result<()>;
+  fn destroy(&self) -> crate::Result<()>;
 
-  fn window(&self) -> Option<&WindowPtr>;
+  fn window(&self) -> Option<WindowPtr>;
 
-  fn render_before(&mut self) -> crate::Result<()>;
-  fn render_after(&mut self) -> crate::Result<()>;
+  fn render_before(&self) -> crate::Result<()>;
+  fn render_after(&self) -> crate::Result<()>;
 
-  fn create_vertex_buffer(&mut self) -> crate::Result<VertexBufferPtr>;
+  fn create_vertex_buffer(&self) -> crate::Result<VertexBufferRef>;
   // fn create_shader(&mut self) -> crate::Result<ShaderPtr>;
-
-  fn add_renderable<R: Renderable>(
-    &mut self,
-    r: R,
-  ) -> crate::Result<Rc<RefCell<dyn Renderable + 'static>>>
-  where
-    Self: Sized;
 }
 
 /// Taken from slint's API

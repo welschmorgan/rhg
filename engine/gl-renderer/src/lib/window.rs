@@ -1,18 +1,14 @@
+use std::{cell::RefCell, rc::Rc};
+
 use raw_window_handle::{HasWindowHandle, WindowHandle};
 use rhg_core::{here, Error, ErrorKind, Window};
 
 pub struct GLWindow {
-  // handle: WindowHandle<'a>,
+  handle: Rc<RefCell<i_slint_core::api::Window>>,
 }
 
 impl GLWindow {
-  pub fn new() -> Self {
-    Self {}
+  pub fn new(handle: Rc<RefCell<i_slint_core::api::Window>>) -> Self {
+    Self { handle }
   }
-}
-
-impl Window for GLWindow {
-  fn create(&mut self) {}
-
-  fn destroy(&mut self) {}
 }

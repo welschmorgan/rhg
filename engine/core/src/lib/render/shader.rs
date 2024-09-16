@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use super::ContextPtr;
+use super::ContextRef;
 
 pub enum ShaderKind {
   Vertex,
@@ -15,6 +15,6 @@ pub trait Shader {
   fn kind(&self) -> ShaderKind;
   fn source(&self) -> String;
 
-  fn create(&mut self, ctx: &ContextPtr) -> crate::Result<()>;
-  fn destroy(&mut self, ctx: &ContextPtr) -> crate::Result<()>;
+  fn create(&mut self, ctx: &ContextRef) -> crate::Result<()>;
+  fn destroy(&mut self, ctx: &ContextRef) -> crate::Result<()>;
 }

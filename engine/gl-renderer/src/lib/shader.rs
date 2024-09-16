@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use glow::HasContext as _;
 
-use rhg_core::{ContextPtr, Shader, ShaderKind};
+use rhg_core::{here, ContextRef, Error, ErrorKind, Shader, ShaderKind};
 
 use crate::GLContext;
 
@@ -16,15 +16,9 @@ impl GLShader {
     Self { kind, source }
   }
 
-  pub fn create(&mut self, ctx: &ContextPtr) -> rhg_core::Result<()> {
+  pub fn create(&mut self, ctx: &ContextRef) -> rhg_core::Result<()> {
     unsafe {
-      let gl = ctx
-        .borrow()
-        .internal()
-        .downcast_ref::<Rc<RefCell<GLContext>>>()
-        .unwrap()
-        .clone();
-      let gl = gl.borrow();
+      let gl = Rc::downcast::<GLContext>(ctx.clone()).map_err(|e| Error::new(ErrorKind::Rendering, format!("invalid GLContext"), None, here!()))?;
       let program = gl.create_program().expect("Cannot create program");
 
       let (vertex_shader_source, fragment_shader_source) = (
@@ -102,11 +96,11 @@ impl Shader for GLShader {
     todo!()
   }
 
-  fn create(&mut self, ctx: &ContextPtr) -> rhg_core::Result<()> {
+  fn create(&mut self, ctx: &ContextRef) -> rhg_core::Result<()> {
     todo!()
   }
 
-  fn destroy(&mut self, ctx: &ContextPtr) -> rhg_core::Result<()> {
+  fn destroy(&mut self, ctx: &ContextRef) -> rhg_core::Result<()> {
     todo!()
   }
 }

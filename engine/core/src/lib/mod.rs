@@ -9,6 +9,7 @@ pub mod event;
 pub mod generic;
 pub mod location;
 pub mod math;
+pub mod ptr;
 pub mod render;
 
 pub use archive::*;
@@ -18,4 +19,5 @@ pub use event::*;
 pub use generic::*;
 pub use location::*;
 pub use math::*;
+pub use ptr::*;
 pub use render::*;

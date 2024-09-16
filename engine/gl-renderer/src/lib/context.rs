@@ -5,19 +5,23 @@ use std::{
   rc::Rc,
 };
 
-use rhg_core::{AsGenericContext, Context};
+use rhg_core::Context;
 
-pub struct GLContext(glow::Context);
+pub struct GLContext(Option<glow::Context>);
 
 impl GLContext {
   pub fn new(ctx: glow::Context) -> Self {
-    Self(ctx)
+    Self(Some(ctx))
+  }
+
+  pub fn empty() -> Self {
+    Self(None)
   }
 }
 
 impl Context for GLContext {
   fn internal(&self) -> &dyn Any {
-    &self.0
+    self.0.as_ref().unwrap()
   }
 
   fn create(&mut self) -> rhg_core::Result<()> {
@@ -33,21 +37,26 @@ impl Deref for GLContext {
   type Target = glow::Context;
 
   fn deref(&self) -> &Self::Target {
-    &self.0
+    self.0.as_ref().unwrap()
   }
 }
 
 impl DerefMut for GLContext {
   fn deref_mut(&mut self) -> &mut Self::Target {
-    &mut self.0
-  }
-}
-
-impl AsGenericContext for GLContext {
-  fn as_generic_context(it: Rc<RefCell<Self>>) -> Rc<RefCell<dyn Context>> {
-    it
+    self.0.as_mut().unwrap()
   }
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+  use std::{
+    cell::{Ref, RefCell},
+    ops::Deref,
+    rc::Rc,
+  };
+
+  use rhg_core::{borrow_downcast, BorrowUpcast, Context};
+
+  use super::GLContext;
+
+}

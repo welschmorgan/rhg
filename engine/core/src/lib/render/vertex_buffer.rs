@@ -1,10 +1,10 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::{Ref, RefCell, RefMut}, rc::Rc};
 
 use crate::{Renderable, Vertex, VertexList};
 
-pub type VertexBufferPtr = Rc<RefCell<dyn VertexBuffer>>;
+pub type VertexBufferRef = Rc<dyn VertexBuffer>;
 
-pub trait VertexBuffer: Renderable + Drop {
-  fn vertices(&self) -> &VertexList<Vertex<f32>>;
-  fn vertices_mut(&mut self) -> &mut VertexList<Vertex<f32>>;
+pub trait VertexBuffer: Renderable {
+  fn vertices(&self) -> Ref<'_, Vec<Vertex<f32>>>;
+  fn vertices_mut(&mut self) -> RefMut<'_, Vec<Vertex<f32>>>;
 }

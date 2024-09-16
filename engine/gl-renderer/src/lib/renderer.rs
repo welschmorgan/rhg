@@ -1,40 +1,48 @@
-use std::{any::Any, cell::RefCell, ops::Deref, rc::Rc};
+use std::{
+  any::Any,
+  cell::{Ref, RefCell},
+  ops::Deref,
+  rc::{Rc, Weak},
+};
 
-use as_any::AsAny;
+use as_any::{AsAny, Downcast};
 use glow::HasContext as _;
 
 use rhg_core::{
-  borrow_downcast, err, here, AsGenericContext, ContextPtr, Error, ErrorKind, GraphicsAPI,
-  Renderable, RenderablePtr, Renderer, VertexBuffer, WindowPtr,
+  borrow_downcast, err, here, Context, ContextRef, Error, ErrorKind, GraphicsAPI, Renderable,
+  RenderableRef, Renderer, VertexBuffer, VertexBufferRef, WindowPtr,
 };
 
 use crate::GLContext;
 
 use super::GLVertexBuffer;
 
-pub struct GLRenderer {
-  context: Option<Rc<RefCell<GLContext>>>,
-  renderables: Vec<RenderablePtr>,
+pub struct GLRendererInner {
+  context: Option<Rc<dyn Any>>,
+  renderables: Vec<RenderableRef>,
   window: Option<WindowPtr>,
 }
 
+pub struct GLRenderer(RefCell<GLRendererInner>);
+
 impl GLRenderer {
   pub fn new() -> Self {
-    Self {
+    Self(RefCell::new(GLRendererInner {
       context: None,
       renderables: vec![],
       window: None,
-    }
+    }))
   }
 
-  pub fn gl_context(&self) -> Rc<RefCell<GLContext>> {
-    self.context.as_ref().unwrap().clone()
+  pub fn context(&self) -> Option<Rc<dyn Any>> {
+    self.0.borrow().context.as_ref().cloned()
   }
 
-  pub fn context(&self) -> ContextPtr {
-    let gl_ctx = self.context.as_ref().unwrap().clone();
-    let ctx = AsGenericContext::as_generic_context(gl_ctx);
-    ctx
+  pub fn gl_context(&self) -> Option<Rc<GLContext>> {
+    self.0.borrow().context.as_ref().and_then(|ctx| {
+      let dup = ctx.clone();
+      dup.downcast::<GLContext>().ok()
+    })
   }
 }
 
@@ -45,11 +53,11 @@ impl Drop for GLRenderer {
 }
 
 impl Renderer for GLRenderer {
-  fn window(&self) -> Option<&WindowPtr> {
-    self.window.as_ref()
+  fn window(&self) -> Option<WindowPtr> {
+    self.0.borrow().window.as_ref().cloned()
   }
 
-  fn create(&mut self, gfx_api: &GraphicsAPI<'_>, window: WindowPtr) -> rhg_core::Result<()> {
+  fn create(&self, gfx_api: &GraphicsAPI<'_>, window: WindowPtr) -> rhg_core::Result<()> {
     let context = match gfx_api {
       #[cfg(not(target_arch = "wasm32"))]
       GraphicsAPI::NativeOpenGL { get_proc_address } => unsafe {
@@ -88,48 +96,53 @@ impl Renderer for GLRenderer {
       }
     };
     println!("Renderer initialized: {:?}!", context.version());
-    self.window = Some(window);
-    self.context = Some(Rc::new(RefCell::new(GLContext::new(context))));
+    self.0.borrow_mut().window = Some(window);
+    self.0.borrow_mut().context = Some(Rc::new(GLContext::new(context)));
     Ok(())
   }
 
-  fn create_vertex_buffer(&mut self) -> rhg_core::Result<Rc<RefCell<dyn VertexBuffer>>> {
-    let ctx = self.context();
-    let mut buf = GLVertexBuffer::default();
+  fn create_vertex_buffer(&self) -> rhg_core::Result<VertexBufferRef> {
+    let ctx = self
+      .context()
+      .ok_or_else(|| {
+        Error::new(
+          ErrorKind::Rendering,
+          format!("invalid GLContext"),
+          None,
+          here!(),
+        )
+      })?
+      .clone();
+    let buf: Rc<dyn VertexBuffer> = Rc::new(GLVertexBuffer::default());
     buf.create(&ctx)?;
-    Ok(
-      self
-        .add_renderable(buf)
-        .as_any_mut()
-        .downcast_ref::<Rc<RefCell<dyn VertexBuffer>>>()
-        .unwrap()
-        .clone(),
-    )
+    Ok(buf)
   }
 
-  fn add_renderable<R: Renderable>(
-    &mut self,
-    mut r: R,
-  ) -> rhg_core::Result<Rc<RefCell<dyn Renderable>>>
-  where
-    Self: Sized,
-  {
-    r.create(&self.context())?;
-    let ptr = Rc::new(RefCell::new(r));
-    self.renderables.push(ptr.clone());
-    Ok(ptr)
-  }
-
-  fn render_before(&mut self) -> rhg_core::Result<()> {
+  fn render_before(&self) -> rhg_core::Result<()> {
     unsafe {
-      let gl = self.gl_context();
-      gl.borrow().clear_color(0.2f32, 0.2f32, 0.2f32, 1.0f32);
-      gl.borrow()
-        .clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
+      let gl = self.gl_context().ok_or_else(|| {
+        Error::new(
+          ErrorKind::Rendering,
+          format!("invalid GLContext"),
+          None,
+          here!(),
+        )
+      })?;
+      gl.clear_color(0.2f32, 0.2f32, 0.2f32, 1.0f32);
+      gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
     }
-    let ctx = self.context().clone();
-    for renderable in &self.renderables {
-      let mut renderable = renderable.borrow_mut();
+    let ctx = self
+      .context()
+      .ok_or_else(|| {
+        Error::new(
+          ErrorKind::Rendering,
+          format!("invalid GLContext"),
+          None,
+          here!(),
+        )
+      })?
+      .clone();
+    for renderable in &self.0.borrow().renderables {
       if !renderable.was_created() {
         renderable.create(&ctx)?;
       }
@@ -138,18 +151,18 @@ impl Renderer for GLRenderer {
     Ok(())
   }
 
-  fn render_after(&mut self) -> rhg_core::Result<()> {
-    let ctx = self.context();
-    for renderable in &self.renderables {
-      renderable.borrow_mut().render_after(&ctx)?;
+  fn render_after(&self) -> rhg_core::Result<()> {
+    let ctx = self.context().expect("invalid GLContext");
+    for renderable in &self.0.borrow().renderables {
+      renderable.render_after(&ctx)?;
     }
     Ok(())
   }
 
-  fn destroy(&mut self) -> rhg_core::Result<()> {
-    let ctx = self.context();
-    for buf in &self.renderables {
-      buf.borrow_mut().destroy(&ctx)?;
+  fn destroy(&self) -> rhg_core::Result<()> {
+    let ctx = self.context().expect("invalid GLContext");
+    for buf in &self.0.borrow().renderables {
+      buf.destroy(&ctx)?;
     }
     Ok(())
   }

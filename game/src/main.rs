@@ -1,4 +1,3 @@
-#![feature(panic_info_message)]
 extern crate rhg_engine_core as rhg_core;
 #[cfg(feature = "gl")]
 extern crate rhg_engine_renderer_gl as rhg_gl;
@@ -24,58 +23,40 @@ use rhg_engine_core::{
   err, here, Engine, EnginePtr, Error, ErrorKind, Renderable, Renderer, Vec3f32, Vec4f32, Vertex,
   VertexBuffer,
 };
-use slint::{ComponentHandle, GraphicsAPI, RenderingState, SharedString, Weak};
+use slint::{
+  ComponentHandle, GraphicsAPI, PhysicalPosition, PhysicalSize, RenderingState, SharedString, Weak,
+  WindowPosition, WindowSize,
+};
 
 slint::include_modules!();
 
+impl Window for GameWindow {
+  fn create(&mut self) {}
+  fn destroy(&mut self) {}
+
+  fn size(&self) -> (u32, u32) {
+    let pos = self.window().size();
+    (pos.width as u32, pos.height as u32)
+  }
+  fn set_size(&mut self, w: u32, h: u32) {
+    self
+      .window()
+      .set_size(WindowSize::Physical(PhysicalSize::new(w, h)));
+  }
+
+  fn position(&self) -> (i32, i32) {
+    let pos = self.window().position();
+    (pos.x, pos.y)
+  }
+
+  fn set_position(&mut self, x: i32, y: i32) {
+    self
+      .window()
+      .set_position(WindowPosition::Physical(PhysicalPosition::new(x, y)));
+  }
+}
+
 pub type ProgramPtr = Rc<RefCell<glow::Program>>;
-
-pub struct Ptr<T: ?Sized>(Rc<RefCell<T>>);
-
-impl<T> Ptr<T> {
-  pub fn new(val: T) -> Self {
-    Self(Rc::new(RefCell::new(val)))
-  }
-}
-
-impl<T> Clone for Ptr<T> {
-  fn clone(&self) -> Self {
-    Self(self.0.clone())
-  }
-}
-
-impl<T: Default> Default for Ptr<T> {
-  fn default() -> Self {
-    Self::new(T::default())
-  }
-}
-
-impl<T: Debug> Debug for Ptr<T> {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    f.debug_tuple("Ptr").field(&self.0).finish()
-  }
-}
-
-impl<T: Display> Display for Ptr<T> {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    self.0.borrow().fmt(f)
-  }
-}
-
-impl<T> Deref for Ptr<T> {
-  type Target = Rc<RefCell<T>>;
-
-  fn deref(&self) -> &Self::Target {
-    &self.0
-  }
-}
-
-impl<T> DerefMut for Ptr<T> {
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    &mut self.0
-  }
-}
-
 pub struct App(Rc<RefCell<AppInner>>);
 
 pub struct AppInner {
@@ -159,7 +140,7 @@ impl App {
       .set_rendering_notifier(move |state, gfx_api| match state {
         slint::RenderingState::RenderingSetup => {
           let api = Self::slint_to_engine_gfx_api(gfx_api).unwrap();
-          let gl_win = Rc::new(RefCell::new(GLWindow::new()));
+          let gl_win = window.clone();
           engine
             .borrow_mut()
             .renderer()
@@ -222,17 +203,7 @@ pub fn main() {
 
   #[cfg(not(target_arch = "wasm32"))]
   std::panic::set_hook(Box::new(|info| {
-    eprintln!(
-      "\x1b[1;31mfatal\x1b[0m: {} at {}",
-      match info.message() {
-        Some(msg) => format!("{}", msg),
-        None => String::new(),
-      },
-      match info.location() {
-        Some(loc) => format!("{}:{}:{}", loc.file(), loc.line(), loc.column()),
-        None => String::new(),
-      }
-    )
+    eprintln!("\x1b[1;31mfatal\x1b[0m: {:?}", info)
   }));
 
   App::new().run()
