@@ -1,5 +1,5 @@
 [workspace]
-members = ["engine", "game"]
+members = ["engine/core", "engine/gl-renderer", "engine/tools/pack", "game"]
 resolver = "2"
 
 [workspace.package]

@@ -4,7 +4,7 @@ use std::{
   str::FromStr,
 };
 
-use rhg_engine::{err, ErrorKind};
+use rhg_engine_core::{err, ErrorKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FilterPart {
@@ -161,7 +161,7 @@ impl AsRef<Vec<FilterPart>> for Filter {
 }
 
 impl FromStr for Filter {
-  type Err = rhg_engine::Error;
+  type Err = rhg_engine_core::Error;
 
   fn from_str(s: &str) -> Result<Self, Self::Err> {
     let mut f = Filter::default();
@@ -259,10 +259,16 @@ mod test {
         "filter does not match, expected '{:?}' to be '{:?}'",
         cap, $expected
       );
-      println!("\x1b[0;32m✔\x1b[0m filter {} {} '{}' -> {:?}", f, match (cap == $expected, $expected.is_some()) {
-        (_, true) => format!("matches"),
-        (_, false) => format!("does not match"),
-      }, $against, cap);
+      println!(
+        "\x1b[0;32m✔\x1b[0m filter {} {} '{}' -> {:?}",
+        f,
+        match (cap == $expected, $expected.is_some()) {
+          (_, true) => format!("matches"),
+          (_, false) => format!("does not match"),
+        },
+        $against,
+        cap
+      );
     }};
   }
 

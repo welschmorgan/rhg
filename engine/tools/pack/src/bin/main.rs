@@ -1,11 +1,9 @@
-mod filter;
-mod options;
-
 use chrono::{DateTime, Utc};
 use clap::Parser;
-use filter::*;
-use options::*;
-
+use rhg_pack::{
+  AddCommandOptions, CliOptions, Command, ExtractCommandOptions, Filter, ListCommandOptions,
+  RemoveCommandOptions, UpdateCommandOptions,
+};
 use std::{
   io::{stdout, Stdout},
   ops::{Deref, DerefMut},
@@ -15,9 +13,9 @@ use std::{
   time::SystemTime,
 };
 
-use rhg_engine::{err, here, Archive, ArchiveFile, Error, ErrorKind};
+use rhg_engine_core::{err, here, Archive, ArchiveFile, Error, ErrorKind};
 
-fn add(opt: &AddCommandOptions) -> rhg_engine::Result<()> {
+fn add(opt: &AddCommandOptions) -> rhg_engine_core::Result<()> {
   let mut a = Archive::default();
   for f in &opt.files {
     a.add(ArchiveFile::load(f)?)?;
@@ -26,7 +24,7 @@ fn add(opt: &AddCommandOptions) -> rhg_engine::Result<()> {
   Ok(())
 }
 
-fn update(opt: &UpdateCommandOptions) -> rhg_engine::Result<()> {
+fn update(opt: &UpdateCommandOptions) -> rhg_engine_core::Result<()> {
   let mut a = match opt.archive.exists() {
     true => Archive::load_file(&opt.archive)?,
     false => Archive::default(),
@@ -39,7 +37,7 @@ fn update(opt: &UpdateCommandOptions) -> rhg_engine::Result<()> {
   Ok(())
 }
 
-fn remove(opt: &RemoveCommandOptions) -> rhg_engine::Result<()> {
+fn remove(opt: &RemoveCommandOptions) -> rhg_engine_core::Result<()> {
   let mut a = Archive::load_file(&opt.archive)?;
   let mut modified = false;
   if let Some(files) = filter_files(&a, &opt.filter)
@@ -59,7 +57,7 @@ fn remove(opt: &RemoveCommandOptions) -> rhg_engine::Result<()> {
   Ok(())
 }
 
-fn extract(opt: &ExtractCommandOptions) -> rhg_engine::Result<()> {
+fn extract(opt: &ExtractCommandOptions) -> rhg_engine_core::Result<()> {
   let a = Archive::load_file(&opt.archive)?;
   let output_dir = opt
     .output_dir
@@ -102,7 +100,7 @@ fn filter_files<'a>(a: &'a Archive, filters: &[Filter]) -> Option<Vec<&'a Archiv
         || filters.iter().any(|filter| {
           file
             .name()
-            .map(|name| filter.matches(&name))
+            .map(|ref name| filter.matches(&name))
             .unwrap_or_default()
         });
       return matches;
@@ -129,7 +127,7 @@ fn print_sys_time(st: &SystemTime) -> String {
   format!("{}", datetime.format("%d/%m/%Y %T"))
 }
 
-fn list(opt: &ListCommandOptions) -> rhg_engine::Result<()> {
+fn list(opt: &ListCommandOptions) -> rhg_engine_core::Result<()> {
   let mut tpl_vars: Vec<(&str, Getter<'_>)> = vec![
     ("offset", |file| Some(format!("0x{:08x}", file.offset()))),
     ("path", |file| Some(format!("{}", file.path().display()))),

@@ -38,6 +38,7 @@ impl<T, P, C, TC> Vertex<T, P, C, TC> {
   }
 }
 
+#[derive(Default)]
 pub struct VertexList<T, P = Vector<T, 3>, C = Vector<T, 4>, TC = Vector<T, 3>>(
   VecDeque<Vertex<T, P, C, TC>>,
 );

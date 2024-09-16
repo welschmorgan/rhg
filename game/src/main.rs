@@ -1,10 +1,17 @@
-extern crate rhg_engine;
+#![feature(panic_info_message)]
+extern crate rhg_engine_core as rhg_core;
+#[cfg(feature = "gl")]
+extern crate rhg_engine_renderer_gl as rhg_gl;
+
+use rhg_core::Window;
+#[cfg(feature = "gl")]
+pub use rhg_gl::*;
 
 // use slint::SharedString;
 
 use std::{
   any::Any,
-  cell::{Ref, RefCell},
+  cell::{Ref, RefCell, RefMut},
   fmt::{Debug, Display},
   ops::{Deref, DerefMut},
   rc::Rc,
@@ -12,8 +19,10 @@ use std::{
 };
 
 use glow::{Buffer, HasContext as _, VertexArray};
-use rhg_engine::{
-  err, here, Error, ErrorKind, GLRenderer, Renderable, Vec3f32, Vec4f32, Vertex, VertexBuffer,
+use raw_window_handle::HasWindowHandle;
+use rhg_engine_core::{
+  err, here, Engine, EnginePtr, Error, ErrorKind, Renderable, Renderer, Vec3f32, Vec4f32, Vertex,
+  VertexBuffer,
 };
 use slint::{ComponentHandle, GraphicsAPI, RenderingState, SharedString, Weak};
 
@@ -70,136 +79,137 @@ impl<T> DerefMut for Ptr<T> {
 pub struct App(Rc<RefCell<AppInner>>);
 
 pub struct AppInner {
-  launcher_window: LauncherWindow,
-  game_window: GameWindow,
-  renderer: Option<Ptr<GLRenderer>>,
+  launcher_window: Rc<RefCell<LauncherWindow>>,
+  game_window: Rc<RefCell<GameWindow>>,
+  engine: Option<EnginePtr>,
 }
 
 impl App {
   pub fn new() -> Self {
-    let ret = Self(Rc::new(RefCell::new(AppInner {
-      launcher_window: LauncherWindow::new().unwrap(),
-      game_window: GameWindow::new().unwrap(),
-      renderer: None,
+    let engine = Rc::new(RefCell::new(
+      Engine::default().with_renderer(GLRenderer::new()),
+    ));
+    let app = App(Rc::new(RefCell::new(AppInner {
+      launcher_window: Rc::new(RefCell::new(LauncherWindow::new().unwrap())),
+      game_window: Rc::new(RefCell::new(GameWindow::new().unwrap())),
+      engine: Some(engine),
     })));
-    let inner = ret.0.clone();
-    let launcher_weak = ret.0.borrow().launcher_window.as_weak();
-    ret.0.borrow().launcher_window.set_model(LauncherModel {
-      engine_version: SharedString::from(rhg_engine::VERSION),
-    });
-    ret.0.borrow().launcher_window.on_launchGame(move || {
-      println!("Launching game ...");
-      setup_rendering(inner.clone());
-      inner.borrow().game_window.show().unwrap();
-      launcher_weak.unwrap().window().hide().unwrap();
-    });
-    ret
+    let launcher = app.0.borrow().launcher_window.clone();
+    let launcher_weak = app.0.borrow().launcher_window.borrow().as_weak();
+    let inner = app.0.clone();
+    inner
+      .borrow()
+      .launcher_window
+      .borrow()
+      .set_model(LauncherModel {
+        engine_version: SharedString::from(rhg_engine_core::VERSION),
+      });
+    let appDup = inner.clone();
+    inner
+      .borrow()
+      .launcher_window
+      .borrow()
+      .on_launchGame(move || {
+        println!("Launching game ...");
+        App::setup_rendering(appDup.clone());
+        appDup.borrow().game_window.borrow().show().unwrap();
+        launcher_weak.unwrap().window().hide().unwrap();
+      });
+    app
   }
 
-  pub fn renderer(&self) -> Ptr<GLRenderer> {
-    self.0.borrow().renderer.as_ref().unwrap().clone()
+  pub fn engine(&self) -> Option<EnginePtr> {
+    self.0.borrow().engine.clone()
   }
 
   fn run(self) {
-    self.0.borrow().launcher_window.show().unwrap();
+    self.0.borrow().launcher_window.borrow().show().unwrap();
     slint::run_event_loop().unwrap();
   }
-}
 
-fn setup_scene(inner: Rc<RefCell<AppInner>>) {
-  let buf = inner
-    .borrow()
-    .renderer
-    .as_ref()
-    .unwrap()
-    .clone()
-    .borrow_mut()
-    .add_renderable(
-      VertexBuffer::<f32>::named("cube_001").with_vertices([Vertex::new(
-        Vec3f32::new(0f32, 0f32, 0f32),
-        Vec4f32::new(255f32, 0f32, 0f32, 255f32),
-        Vec3f32::new(0f32, 0f32, 0f32),
-      )]),
-    )
-    .unwrap();
-}
+  fn slint_to_engine_gfx_api<'a>(
+    gfx_api: &'a slint::GraphicsAPI<'a>,
+  ) -> rhg_core::Result<rhg_core::GraphicsAPI<'a>> {
+    Ok(match gfx_api {
+      slint::GraphicsAPI::NativeOpenGL { get_proc_address } => {
+        rhg_engine_core::GraphicsAPI::NativeOpenGL { get_proc_address }
+      }
+      slint::GraphicsAPI::WebGL {
+        canvas_element_id,
+        context_type,
+      } => rhg_engine_core::GraphicsAPI::WebGL {
+        canvas_element_id,
+        context_type,
+      },
+      _ => return err!(ErrorKind::Rendering, "invalid GraphicsAPI".to_string()),
+    })
+  }
 
-fn setup_rendering(inner: Rc<RefCell<AppInner>>) {
-  let inner2 = inner.clone();
-  let inner3 = inner.clone();
-  if let Err(e) =
-    inner
+  fn setup_rendering(data: Rc<RefCell<AppInner>>) {
+    let window = data.borrow().game_window.clone();
+    let engine = data.borrow().engine.as_ref().unwrap().clone();
+    let handle = window.borrow().window().window_handle();
+
+    if let Err(e) = data
+      .clone()
       .borrow()
       .game_window
+      .borrow()
       .window()
       .set_rendering_notifier(move |state, gfx_api| match state {
         slint::RenderingState::RenderingSetup => {
-          let context = match gfx_api {
-            #[cfg(not(target_arch = "wasm32"))]
-            slint::GraphicsAPI::NativeOpenGL { get_proc_address } => unsafe {
-              glow::Context::from_loader_function_cstr(|s| get_proc_address(s))
-            },
-            #[cfg(target_arch = "wasm32")]
-            slint::GraphicsAPI::WebGL {
-              canvas_element_id,
-              context_type,
-            } => {
-              use wasm_bindgen::JsCast;
-
-              let canvas = web_sys::window()
-                .unwrap()
-                .document()
-                .unwrap()
-                .get_element_by_id(canvas_element_id)
-                .unwrap()
-                .dyn_into::<web_sys::HtmlCanvasElement>()
-                .unwrap();
-
-              let webgl1_context = canvas
-                .get_context(context_type)
-                .unwrap()
-                .unwrap()
-                .dyn_into::<web_sys::WebGlRenderingContext>()
-                .unwrap();
-
-              glow::Context::from_webgl1_context(webgl1_context)
-            }
-            _ => return,
-          };
-          println!("Renderer initialized: {:?}!", context.version());
-          let renderer = Some(Ptr::new(GLRenderer::new(Rc::new(RefCell::new(context)))));
-          inner3.borrow_mut().renderer = renderer;
+          let api = Self::slint_to_engine_gfx_api(gfx_api).unwrap();
+          let gl_win = Rc::new(RefCell::new(GLWindow::new()));
+          engine
+            .borrow_mut()
+            .renderer()
+            .as_ref()
+            .unwrap()
+            .borrow_mut()
+            .create(&api, gl_win)
+            .expect("failed to create renderer");
         }
         slint::RenderingState::BeforeRendering => {
-          inner2
+          engine
             .borrow_mut()
-            .renderer
-            .as_mut()
+            .renderer()
+            .as_ref()
             .unwrap()
             .borrow_mut()
             .render_before()
             .unwrap();
-          inner2.borrow().game_window.window().request_redraw();
+          window.borrow().window().request_redraw();
         }
         slint::RenderingState::AfterRendering => {
-          inner2
+          engine
             .borrow_mut()
-            .renderer
+            .renderer()
             .as_mut()
             .unwrap()
             .borrow_mut()
             .render_after()
             .unwrap();
         }
-        slint::RenderingState::RenderingTeardown => drop(inner3.borrow_mut().renderer.take()),
+        slint::RenderingState::RenderingTeardown => {
+          engine
+            .borrow_mut()
+            .renderer()
+            .as_mut()
+            .unwrap()
+            .borrow_mut()
+            .render_before()
+            .unwrap();
+          drop(data.borrow_mut().engine.take())
+        }
         _ => {}
       })
-  {
-    match e {
+    {
+      match e {
         slint::SetRenderingNotifierError::Unsupported => eprintln!("This example requires the use of the GL backend. Please run with the environment variable SLINT_BACKEND=GL set."),
         _ => unreachable!()
+      }
+      std::process::exit(1);
     }
-    std::process::exit(1);
   }
 }
 
@@ -209,6 +219,21 @@ pub fn main() {
   // It's disabled in release mode so it doesn't bloat up the file size.
   #[cfg(all(debug_assertions, target_arch = "wasm32"))]
   console_error_panic_hook::set_once();
+
+  #[cfg(not(target_arch = "wasm32"))]
+  std::panic::set_hook(Box::new(|info| {
+    eprintln!(
+      "\x1b[1;31mfatal\x1b[0m: {} at {}",
+      match info.message() {
+        Some(msg) => format!("{}", msg),
+        None => String::new(),
+      },
+      match info.location() {
+        Some(loc) => format!("{}:{}:{}", loc.file(), loc.line(), loc.column()),
+        None => String::new(),
+      }
+    )
+  }));
 
   App::new().run()
 }

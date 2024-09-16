@@ -15,4 +15,4 @@ slint = "1.7.2"
 rhg-engine = { path = "../engine" }
 
 [build-dependencies]
-slint-build = "1.7.0"
+slint-build = "1.7.2"

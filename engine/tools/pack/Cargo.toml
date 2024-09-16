@@ -1,0 +1,25 @@
+[package]
+name = "r-engine-pack"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+[features]
+default = ["gl"]
+gl = ["dep:glow"]
+
+[lib]
+name = "rhg_pack"
+path = "src/lib/mod.rs"
+
+[[bin]]
+name = "rhg_pack"
+path = "src/bin/main.rs"
+
+[dependencies]
+as-any = "0.3.1"
+chrono = "0.4.38"
+clap = { version = "4.5.17", features = ["derive"] }
+glow = { version = "0.14.0", optional = true }
+rhg-engine-core = { path = "../../core" }
+# serde = { version = "1.0.210", features = ["derive"] }

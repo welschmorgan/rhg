@@ -1,8 +1,12 @@
 use std::{cell::RefCell, rc::Rc};
 
-pub type ContextPtr = Rc<RefCell<glow::Context>>;
+use as_any::AsAny;
 
-pub trait Renderable {
+use crate::Context;
+
+pub type ContextPtr = Rc<RefCell<dyn Context>>;
+
+pub trait Renderable: AsAny {
   fn was_created(&self) -> bool;
 
   fn name(&self) -> Option<&String> {

@@ -1,19 +1,20 @@
 [package]
-name = "rhg-engine"
+name = "rhg-engine-core"
 edition.workspace = true
 version.workspace = true
 authors.workspace = true
 
+
 [lib]
-name = "rhg_engine"
+name = "rhg_engine_core"
 path = "src/lib/mod.rs"
 
-[[bin]]
-name = "rhg_pack"
-path = "src/bin/pack/main.rs"
-
 [dependencies]
+as-any = "0.3.1"
 chrono = "0.4.38"
 clap = { version = "4.5.17", features = ["derive"] }
-glow = "0.14"
+raw-window-handle = { version = "0.6.2", features = [
+  "wasm-bindgen",
+  "wasm-bindgen-0-2",
+] }
 # serde = { version = "1.0.210", features = ["derive"] }

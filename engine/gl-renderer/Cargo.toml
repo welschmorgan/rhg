@@ -1,28 +1,25 @@
 [package]
-name = "rhg-game"
+name = "rhg-engine-renderer-gl"
 edition.workspace = true
 version.workspace = true
 authors.workspace = true
 
 [features]
 default = ["gl"]
-gl = ["dep:glow", "dep:rhg-engine-renderer-gl"]
+gl = ["dep:glow"]
 
-[[bin]]
-name = "rhg_game"
-path = "src/main.rs"
+[lib]
+name = "rhg_engine_renderer_gl"
+path = "src/lib/mod.rs"
 
 [dependencies]
+as-any = "0.3.1"
 chrono = "0.4.38"
 clap = { version = "4.5.17", features = ["derive"] }
-slint = { version = "1.7.2", features = ["raw-window-handle-06"] }
-rhg-engine-core = { path = "../engine/core" }
-rhg-engine-renderer-gl = { path = "../engine/gl-renderer", optional = true }
 glow = { version = "0.14.0", optional = true }
+rhg-engine-core = { path = "../core" }
 raw-window-handle = { version = "0.6.2", features = [
   "wasm-bindgen",
   "wasm-bindgen-0-2",
 ] }
-
-[build-dependencies]
-slint-build = "1.7.0"
+# serde = { version = "1.0.210", features = ["derive"] }
